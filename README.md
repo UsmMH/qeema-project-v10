@@ -18,7 +18,7 @@ A fully automated, containerized platform for managing events, registrations, an
 1. **Clone the repository:**
    ```bash
    git clone <your-repo-url](https://github.com/MOAZHAGGAG/qeemaass>
-   cd qeemaass-dev/docker
+   cd qeema-project-v10/docker
    ```
 
 2. **Configure environment variables:**
