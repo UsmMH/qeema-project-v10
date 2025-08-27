@@ -1,0 +1,312 @@
+services:
+
+  frontend-ss:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    container_name: event_management_frontend_ss
+    ports:
+      - "8502:8501"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: event_management
+      DB_USER: eventuser
+      DB_PASSWORD: eventpass123
+      WEAVIATE_URL: http://weaviate:8080
+      OPENAI_APIKEY: ${OPENAI_APIKEY:-your-openai-key}
+    depends_on:
+      - backend
+      - master_init
+    command: [ "streamlit", "run", "ss.py", "--server.address=0.0.0.0" ]
+    networks:
+      - event_network
+    restart: unless-stopped
+
+  frontend-ss2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    container_name: event_management_frontend_ss2
+    ports:
+      - "8503:8501"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: event_management
+      DB_USER: eventuser
+      DB_PASSWORD: eventpass123
+      WEAVIATE_URL: http://weaviate:8080
+      OPENAI_APIKEY: ${OPENAI_APIKEY:-your-openai-key}
+    depends_on:
+      - backend
+      - master_init
+    command: [ "streamlit", "run", "ss2.py", "--server.address=0.0.0.0" ]
+    networks:
+      - event_network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15
+    container_name: event_management_db
+    environment:
+      POSTGRES_DB: event_management
+      POSTGRES_USER: eventuser
+      POSTGRES_PASSWORD: eventpass123
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    command: [ "postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10" ]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../migrations/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    ports:
+      - "5445:5432"
+    networks:
+      - event_network
+    restart: unless-stopped
+
+  master_init:
+    image: python:3.12-slim
+    container_name: event_management_master_init
+    depends_on:
+      - postgres
+      - weaviate
+      - debezium
+    volumes:
+      - ./:/app
+    working_dir: /app
+    entrypoint: [ "sh", "-c", "apt-get update && apt-get install -y postgresql-client curl && pip install requests && python master_init.py" ]
+    networks:
+      - event_network
+    restart: "no"
+
+  import_debezium_connector:
+    image: python:3.12-slim
+    container_name: import_debezium_connector
+    depends_on:
+      - debezium
+    volumes:
+      - ./:/app
+    working_dir: /app
+    entrypoint: [ "sh", "-c", "pip install requests && python import_debezium_connector.py" ]
+    networks:
+      - event_network
+    restart: "no"
+
+  import_registration_connector:
+    image: python:3.12-slim
+    container_name: import_registration_connector
+    depends_on:
+      - debezium
+      - postgres
+    volumes:
+      - ./:/app
+    working_dir: /app
+    entrypoint: [ "sh", "-c", "pip install requests && python import_registration_connector.py" ]
+    networks:
+      - event_network
+    restart: "no"
+
+  import_weaviate_schema:
+    image: python:3.12-slim
+    container_name: import_weaviate_schema
+    depends_on:
+      - weaviate
+    volumes:
+      - ./:/app
+    working_dir: /app
+    entrypoint: [ "sh", "-c", "pip install requests && python import_weaviate_schema.py" ]
+    networks:
+      - event_network
+    restart: "no"
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: event_management_backend2
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: event_management
+      DB_USER: eventuser
+      DB_PASSWORD: eventpass123
+    depends_on:
+      - master_init
+    networks:
+      - event_network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    container_name: event_management_frontend2
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://backend:8000
+    command: [ "streamlit", "run", "app.py", "--server.address=0.0.0.0" ]
+    depends_on:
+      - backend
+    networks:
+      - event_network
+    restart: unless-stopped
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: event_management_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports:
+      - "2181:2181"
+    networks:
+      - event_network
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: event_management_kafka
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: event_management_zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9093:9092"
+    depends_on:
+      - zookeeper
+    networks:
+      - event_network
+    restart: unless-stopped
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    container_name: event_management_schema_registry
+    environment:
+      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: event_management_zookeeper:2181
+      SCHEMA_REGISTRY_HOST_NAME: event_management_schema_registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+    ports:
+      - "8082:8081"
+    depends_on:
+      - kafka
+      - zookeeper
+    networks:
+      - event_network
+    restart: unless-stopped
+
+  debezium:
+    image: debezium/connect:1.4
+    container_name: event_management_debezium
+    environment:
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_statuses
+      KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
+      VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      BOOTSTRAP_SERVERS: kafka:9092
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://event_management_schema_registry:8081
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://event_management_schema_registry:8081
+      CONNECT_REST_ADVERTISED_HOST_NAME: event_management_debezium
+      CONNECT_REST_PORT: 8083
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_PLUGIN_PATH: /kafka/connect
+    depends_on:
+      - kafka
+      - schema-registry
+    networks:
+      - event_network
+    ports:
+      - "8090:8083"
+    restart: unless-stopped
+
+  weaviate:
+    image: semitechnologies/weaviate:1.25.0
+
+    container_name: weaviate
+    environment:
+      QUERY_DEFAULTS_LIMIT: 20
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'text2vec-openai'
+      ENABLE_MODULES: 'text2vec-openai'
+      OPENAI_APIKEY: '${OPENAI_APIKEY}'
+      OPENAI_INSECURE_SKIP_VERIFY: "true"
+    ports:
+      - "8085:8080"
+    networks:
+      - event_network
+    restart: unless-stopped
+
+  kafka_to_weaviate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.kafka_to_weaviate
+    container_name: kafka_to_weaviate
+    depends_on:
+      - kafka
+      - weaviate
+    networks:
+      - event_network
+    restart: unless-stopped
+
+  email_service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.email
+    container_name: event_email_service
+    environment:
+      # Database connection
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: event_management
+      DB_USER: eventuser
+      DB_PASSWORD: eventpass123
+
+      # Kafka connection
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+      # Email configuration (set these in .env file)
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      FROM_EMAIL: ${FROM_EMAIL:-${SMTP_USER}}
+      FROM_NAME: ${FROM_NAME:-Event Management System}
+    depends_on:
+      - master_init
+    networks:
+      - event_network
+    restart: unless-stopped
+  # recommend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.streamlit
+  #   container_name: recommend_streamlit
+  #   environment:
+  #     WEAVIATE_URL: "http://weaviate:8080"
+  #     OPENAI_APIKEY: "${OPENAI_APIKEY}"
+  #     OPENAI_INSECURE_SKIP_VERIFY: "${OPENAI_INSECURE_SKIP_VERIFY}"
+  #   ports:
+  #     - "8602:8501"
+  #   depends_on:
+  #     - weaviate
+  #   networks:
+  #     - event_network
+  #   restart: unless-stopped
+
+volumes:
+  postgres_data: {}
+
+networks:
+  event_network:
+    driver: bridge

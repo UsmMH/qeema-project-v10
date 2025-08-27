@@ -1,0 +1,22 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+
+# Copy requirements file
+COPY frontend/requirements-frontend.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements-frontend.txt
+
+# Copy frontend code
+COPY frontend/ .
+
+# Expose the port Streamlit runs on
+EXPOSE 8501
+
+# Allow running ss.py or ss2.py as alternative entrypoints
+ENTRYPOINT []
+
+# Default command runs Streamlit app, but can be overridden
+CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0"]

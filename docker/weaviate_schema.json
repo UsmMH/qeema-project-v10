@@ -1,0 +1,17 @@
+{
+  "class": "Event",
+  "description": "A single event from the events table",
+  "vectorizer": "text2vec-openai",
+  "properties": [
+    {"name": "postgres_id", "dataType": ["int"], "description": "PostgreSQL event ID for registration"},
+    {"name": "title", "dataType": ["text"], "description": "Event title"},
+    {"name": "description", "dataType": ["text"], "description": "Event description"},
+    {"name": "category", "dataType": ["text"], "description": "Event category"},
+    {"name": "location", "dataType": ["text"], "description": "Event location"},
+    {"name": "organizer", "dataType": ["text"], "description": "Event organizer"},
+    {"name": "event_date", "dataType": ["text"], "description": "Event date in YYYY-MM-DD format"},
+    {"name": "event_time", "dataType": ["text"], "description": "Event time in HH:MM:SS format"},
+    {"name": "created_at", "dataType": ["text"], "description": "Created timestamp in YYYY-MM-DD HH:MM:SS format"},
+    {"name": "updated_at", "dataType": ["text"], "description": "Updated timestamp in YYYY-MM-DD HH:MM:SS format"}
+  ]
+}

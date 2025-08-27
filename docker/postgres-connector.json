@@ -1,0 +1,26 @@
+{
+  "name": "postgres-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "plugin.name": "pgoutput",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "eventuser",
+    "database.password": "eventpass123",
+    "database.dbname": "event_management",
+    "database.server.name": "postgres",
+    "table.include.list": "public.events",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter.schemas.enable": "false",
+    "tombstones.on.delete": "true",
+    "include.schema.changes": "true",
+    "time.precision.mode": "connect",
+    "transforms": "timestampConverter",
+    "transforms.timestampConverter.type": "org.apache.kafka.connect.transforms.TimestampConverter$Value",
+    "transforms.timestampConverter.target.type": "string",
+    "transforms.timestampConverter.field": "event_date,event_time,created_at,updated_at",
+    "transforms.timestampConverter.format": "yyyy-MM-dd HH:mm:ss"
+  }
+}
